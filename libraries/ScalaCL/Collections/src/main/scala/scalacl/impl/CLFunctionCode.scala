@@ -21,7 +21,8 @@ case class SourceData(
   functionSource: String,
   kernelsSource: String,
   includedSources: Array[String],
-  outerDeclarations: Seq[String]
+  outerDeclarations: Seq[String],
+  usesRandom:Boolean
 )
 
 object CLFunctionCode {
@@ -228,6 +229,7 @@ object CLFunctionCode {
     declarations: Array[String],
     expressions: Array[String],
     includedSources: Array[String],
+    usesRandom:Boolean,
     extraArgsIOs: CapturedIOs = CapturedIOs(),
     bodyPrefix: Array[String] = Array(),
     bodySuffix: Array[String] = Array()
@@ -285,7 +287,9 @@ object CLFunctionCode {
     val presenceHeader = Seq("if (!" + presenceName + "[" + indexVarName + "]) return;")
     
     val sizeParam = Seq("int " + sizeVarName)
-    
+
+    val randomSeedParam = Seq("const double __cl_random_seed")
+
     val kernDeclsArray = declarations.map(replaceAll(_, false, fibersReplacementInfos))
     lazy val kernDeclsRange = declarations.map(replaceAll(_, true, fibersReplacementInfos))
     
@@ -296,9 +300,20 @@ object CLFunctionCode {
     for (outerDeclaration <- outerDeclarations)
       kernelsSource.append(outerDeclaration).append('\n')
     
+    val stdParamSeq = 
+      if (usesRandom)
+        Seq(sizeParam, randomSeedParam, kernelParams)
+      else
+        Seq(sizeParam, kernelParams)
+    val presenceParamSeq =
+      if (usesRandom)
+        Seq(sizeParam, presenceParam, randomSeedParam, kernelParams)
+      else
+        Seq(sizeParam, presenceParam, kernelParams)
+    
     outputFunction(
       "__kernel void array_array",
-      Seq(sizeParam, kernelParams),
+      stdParamSeq,
       Seq(
         bodyPrefix,
         indexHeader, 
@@ -311,7 +326,7 @@ object CLFunctionCode {
     )
     outputFunction(
       "__kernel void filteredArray_filteredArray",
-      Seq(sizeParam, presenceParam, kernelParams), 
+      presenceParamSeq, 
       Seq(
         bodyPrefix,
         indexHeader,
@@ -327,7 +342,7 @@ object CLFunctionCode {
     if (aIO.t.erasure == classOf[Int]) {// || aIO.t.erasure == classOf[Integer])) {
       outputFunction(
         "__kernel void range_array",
-        Seq(sizeParam, kernelParams),
+        stdParamSeq,
         Seq(
           bodyPrefix,
           indexHeader,
@@ -347,7 +362,8 @@ object CLFunctionCode {
       functionSource = functionSource,
       kernelsSource = kernelsSource.toString,
       includedSources = includedSources,
-      outerDeclarations = outerDeclarations
+      outerDeclarations = outerDeclarations,
+      usesRandom = usesRandom
     )
   }
 }
@@ -397,7 +413,8 @@ extends CLCode
             outerDeclarations = Array(),// TODO ??? outerDeclarations ++ f.outerDeclarations, 
             declarations = Array(),
             expressions = Array(functionName + "(" + f.sourceData.functionName + "(_))"),
-            includedSources = sourcesToInclude ++ f.sourcesToInclude
+            includedSources = sourcesToInclude ++ f.sourcesToInclude,
+            usesRandom = (f.sourceData.usesRandom || sourceData.usesRandom)
           )(f.aIO, bIO)
         ).asInstanceOf[CLFunctionCode[_, _]]
       }).asInstanceOf[CLFunctionCode[C, B]]
@@ -413,7 +430,8 @@ extends CLCode
             outerDeclarations = Array(),  
             declarations = Array(), 
             expressions = Array("(" + functionName + "(_) && " + f.sourceData.functionName + "(_))"), 
-            includedSources = sourcesToInclude ++ f.sourcesToInclude
+            includedSources = sourcesToInclude ++ f.sourcesToInclude,
+            usesRandom = (f.sourceData.usesRandom || sourceData.usesRandom)
           )
         ).asInstanceOf[CLFunctionCode[_, _]]
       }).asInstanceOf[CLFunctionCode[A, B]]

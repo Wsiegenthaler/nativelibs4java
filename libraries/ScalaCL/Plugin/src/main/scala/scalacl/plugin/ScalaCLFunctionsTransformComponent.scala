@@ -384,18 +384,32 @@ extends PluginComponent
           Map(uniqueParam.symbol -> "_") ++
           ((capturedOutputBuffers ++ capturedScalars).zipWithIndex.map { case (c, i) => c.symbol -> ("_" + (i + 1)) })
         
-        //println("symsMap = " + symsMap)
-  
-        def convertCode(tree: Tree) =
-          convert(removeSymbolsExceptParamSymbolAsUnderscore(symsMap/*uniqueParam.symbol*/, tree))
-  
-        val Array(convDefs, convStats, convVals) = Array(flattened.outerDefinitions, flattened.statements, flattened.values).map(_ map convertCode)
+        println("symsMap = " + symsMap)
         
+        // Remove symbols from each component of the flattened tree
+        val Seq(defsNoSymbols, statsNoSymbols, valsNoSymbols) = Seq(flattened.outerDefinitions, flattened.statements, flattened.values).map(_ map(t => removeSymbolsExceptParamSymbolAsUnderscore(symsMap, t)))
+  
+        // Convert the tree using OpenCLConverter
+        val (convDefs: Seq[FlatCode[String]], defsUseRandom: Boolean) = convertTrees(defsNoSymbols)
+        val (convStats: Seq[FlatCode[String]], statsUseRandom: Boolean) = convertTrees(statsNoSymbols)
+        val (convVals: Seq[FlatCode[String]], valsUseRandom: Boolean) = convertTrees(valsNoSymbols)
+        val usesRandom = defsUseRandom || statsUseRandom || valsUseRandom
+            
+        // Inject random number generation if required
+        val (finalConvDefs, finalConvStats) =
+          if (usesRandom)
+        	(
+        	  FlatCode[String](Seq(MWC64X_RNG.mwc64xOuterCode), Seq(), Seq()) +: convDefs,
+              FlatCode[String](Seq(), Seq(MWC64X_RNG.mwc64xDefCode()), Seq()) +: convStats
+            )
+          else
+            (convDefs, convStats)
+
         val outerDefinitions = 
-          Seq(convDefs, convStats, convVals).flatMap(_.flatMap(_.outerDefinitions)).distinct.toArray.sortBy(_.startsWith("#"))
+          Seq(finalConvDefs, finalConvStats, convVals).flatMap(_.flatMap(_.outerDefinitions)).distinct.toArray.sortBy(_.startsWith("#"))
         
         val statements = 
-          Seq(convStats, convVals).flatMap(_.flatMap(_.statements))
+          Seq(finalConvStats, convVals).flatMap(_.flatMap(_.statements))
         
         val values: Seq[String] = 
           convVals.flatMap(_.values)
@@ -456,6 +470,7 @@ extends PluginComponent
             declarations = statements.toArray,
             expressions = values.toArray,
             includedSources = Array(),
+            usesRandom = usesRandom,
             extraArgsIOs = CapturedIOs(
               extraInputBufferArgsIOs.toArray.map(_._2),
               extraOutputBufferArgsIOs.toArray.map(_._2),
@@ -505,7 +520,8 @@ extends PluginComponent
                   newArrayApply(TypeTree(StringClass.tpe), values.map(value => Literal(Constant(value))):_*),
                   newArrayApply(TypeTree(anyCLDataIOTpe), extraInputBufferArgsIOs.map(_._1):_*),
                   newArrayApply(TypeTree(anyCLDataIOTpe), extraOutputBufferArgsIOs.filter(_ != null).map(_._1):_*),
-                  newArrayApply(TypeTree(anyCLDataIOTpe), extraScalarArgsIOs.filter(_ != null).map(_._1):_*)
+                  newArrayApply(TypeTree(anyCLDataIOTpe), extraScalarArgsIOs.filter(_ != null).map(_._1):_*),
+                  newBool(usesRandom)
                 )
               ).setSymbol(getCachedFunctionSym),
               List(

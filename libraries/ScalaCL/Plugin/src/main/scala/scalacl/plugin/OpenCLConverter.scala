@@ -40,7 +40,6 @@ import scala.reflect.generic.{Names, Trees, Types, Constants, Universe}
 import scala.tools.nsc.Global
 import scala.tools.nsc.symtab.Flags._
 import scala.tools.nsc.plugins.PluginComponent
-
 trait OpenCLConverter
 extends MiscMatchers 
    with CodeFlattening 
@@ -56,14 +55,23 @@ extends MiscMatchers
   var openclLabelIds = new Ids
   
   var placeHolderRefs = new Stack[String]
+  
+  val randomName = N("random")
 
   def valueCode(v: String) = FlatCode[String](Seq(), Seq(), Seq(v))
   def emptyCode = FlatCode[String](Seq(), Seq(), Seq())
   def statementCode(s: String) = FlatCode[String](Seq(), Seq(s), Seq())
-  def convert(body: Tree): FlatCode[String] = {
-    def cast(expr: Tree, clType: String) =
-      convert(expr).mapEachValue(v => Seq("((" + clType + ")" + v + ")"))
 
+  /**
+   * Returns <code>FlatCode[String]</code> representation of <code>body</code> and
+   * a boolean representing whether this tree needs a random number
+   * generator.
+   */
+  def convert(body: Tree): (FlatCode[String], Boolean) = {
+    def cast(expr: Tree, clType: String) = {
+      val (exprConv, usesRandom) = convert(expr)
+      (exprConv.mapEachValue(v => Seq("((" + clType + ")" + v + ")")), usesRandom)
+    }
       /*
     def convertForeach(from: Tree, to: Tree, isUntil: Boolean, by: Tree, function: Tree) = {
         val Function(List(vd @ ValDef(paramMods, paramName, tpt, rhs)), body) = function
@@ -79,14 +87,16 @@ extends MiscMatchers
     }*/
     body match {
       case TupleCreation(tupleArgs) =>//Apply(TypeApply(Select(TupleObject(), applyName()), tupleTypes), tupleArgs) if isTopLevel =>
-        tupleArgs.map(convert).reduceLeft(_ ++ _)
+        val (convTupleArgs, usesRandom) = convertTrees(tupleArgs)
+        val flatCode = convTupleArgs.reduceLeft(_ ++ _)
+        (flatCode, usesRandom)
       case Literal(Constant(value)) =>
         if (value == ())
-          emptyCode
+          (emptyCode, false)
         else
-          valueCode(value.toString)
+          (valueCode(value.toString), false)
       case Ident(name) =>
-        valueCode(name.toString)
+        (valueCode(name.toString), false)
 
       case If(condition, then, otherwise) =>
         // val (a, b) = if ({ val d = 0 ; d != 0 }) (1, d) else (2, 0)
@@ -95,10 +105,11 @@ extends MiscMatchers
         // val condition = d != 0
         // val a = if (condition) 1 else 2
         // val b = if (condition) d else 0
-        val FlatCode(dc, sc, Seq(vc)) = convert(condition)
-        val fct @ FlatCode(Seq(), st, vt) = convert(then)
-        val fco @ FlatCode(Seq(), so, vo) = convert(otherwise)
-
+        val (FlatCode(dc, sc, Seq(vc)), randc) = convert(condition)
+        val (fct @ FlatCode(Seq(), st, vt), randt) = convert(then)
+        val (fco @ FlatCode(Seq(), so, vo), rando) = convert(otherwise)
+        val usesRandom = randc || randt || rando
+        
         def newIf(t: String, o: String, isValue: Boolean) =
           if (isValue)
             "((" + vc + ") ? (" + t + ") : (" + o + "))"
@@ -117,20 +128,24 @@ extends MiscMatchers
               Seq()
             )
         }
-        FlatCode[String](
-          dc,
-          sc ++ rs,
-          rv
-        )
+        (FlatCode[String](dc, sc ++ rs, rv), usesRandom)
       case Apply(Select(target, applyName()), List(singleArg)) =>
-        merge(Seq(target, singleArg).map(convert):_*) { case Seq(t, a) => Seq(t + "[" + a + "]") }
+        val (converted, usesRandom) = convertTrees(Seq(target, singleArg))
+        val flatCode = merge(converted:_*) { case Seq(t, a) => Seq(t + "[" + a + "]") }
+        (flatCode, usesRandom)
       case Apply(Select(target, updateName()), List(index, value)) =>
-        merge(Seq(target, index, value).map(convert):_*) { case Seq(t, i, v) => Seq(t + "[" + i + "] = " + v) }
+        val (converted, usesRandom) = convertTrees(Seq(target, index, value))
+        val flatCode = merge(converted:_*) { case Seq(t, i, v) => Seq(t + "[" + i + "] = " + v) }
+        (flatCode, usesRandom)
       case Assign(lhs, rhs) =>
-        merge(Seq(lhs, rhs).map(convert):_*) { case Seq(l, r) => Seq(l + " = " + r + ";") }
+        val (converted, usesRandom) = convertTrees(Seq(lhs, rhs))
+        val flatCode = merge(converted:_*) { case Seq(l, r) => Seq(l + " = " + r + ";") }
+        (flatCode, usesRandom)
       case Typed(expr, tpt) =>
         val t = convertTpe(tpt.tpe)
-        convert(expr).mapValues(_.map(v => "((" + t + ")" + v + ")")) 
+        val (exprConv, usesRandom) = convert(expr)
+        val flatCode = exprConv.mapValues(_.map(v => "((" + t + ")" + v + ")")) 
+        (flatCode, usesRandom)
       case DefDef(mods, name, tparams, vparamss, tpt, body) =>
         val b = new StringBuilder
         b ++= convertTpe(body.tpe) + " " + name + "("
@@ -143,21 +158,17 @@ extends MiscMatchers
           b ++= constPref(param.mods) + convertTpe(param.tpt.tpe) + " " + param.name
         }
         b ++= ") {\n"
-        val convBody = convert(body)
+        val (convBody, usesRandom) = convert(body)
         convBody.statements.foreach(b ++= _)
         if (!convBody.values.isEmpty) {
           val Seq(ret) = convBody.values
           b ++= "return " + ret + ";"
         }
         b ++= "\n}"
-        FlatCode[String](
-          convBody.outerDefinitions :+ b.toString,
-          Seq(),
-          Seq()
-        )
+        (FlatCode[String](convBody.outerDefinitions :+ b.toString, Seq(), Seq()), usesRandom)
       case vd @ ValDef(paramMods, paramName, tpt: TypeTree, rhs) =>
-        val convValue = convert(rhs)
-        FlatCode[String](
+        val (convValue, usesRandom) = convert(rhs)
+        val flatCode = FlatCode[String](
           convValue.outerDefinitions,
           convValue.statements ++
           Seq(
@@ -171,6 +182,7 @@ extends MiscMatchers
           ),
           Seq()
         )
+        (flatCode, usesRandom)
       //case Typed(expr, tpe) =>
       //  out(expr)
       case Match(ma @ Ident(matchName), List(CaseDef(pat, guard, body))) =>
@@ -189,26 +201,29 @@ extends MiscMatchers
       case Select(expr, toDoubleName()) => cast(expr, "double")
       case Select(expr, toFloatName()) => cast(expr, "float")
       case ScalaMathFunction(functionType, funName, args) =>
-        convertMathFunction(functionType, funName, args)
+        (convertMathFunction(functionType, funName, args), false)
       case Apply(s @ Select(left, name), args) =>
         val List(right) = args
         NameTransformer.decode(name.toString) match {
           case op @ ("+" | "-" | "*" | "/" | "%" | "^" | "^^" | "&" | "&&" | "|" | "||" | "<<" | ">>" | "==" | "<" | ">" | "<=" | ">=" | "!=") =>
-            merge(Seq(left, right).map(convert):_*) {
+            val (converted, usesRandom) = convertTrees(Seq(left, right))
+            val flatCode = merge(converted:_*) {
               case Seq(l, r) => Seq("(" + l + " " + op + " " + r + ")")
-              //case e =>
-              //  throw new RuntimeException("ugh : " + e + ", op = " + op + ", body = " + body + ", left = " + left + ", right = " + right)
             }
+            (flatCode, usesRandom)
           case n if isPackageReference(left, "scala.math") =>
-            convertMathFunction(s.tpe, name, args)
+            (convertMathFunction(s.tpe, name, args), false)
             //merge(Seq(right).map(convert):_*) { case Seq(v) => Seq(n + "(" + v + ")") }
           case n =>
             println(nodeToStringNoComment(body))
             throw new RuntimeException("[ScalaCL] Unhandled method name in Scala -> OpenCL conversion : " + name + "\n\tleft = " + left + ",\n\targs = " + args)
-            valueCode("/* Error: failed to convert " + body + " */")
+            (valueCode("/* Error: failed to convert " + body + " */"), false)
         }
+      case s @ Select(expr, randomName() ) if (isPackageReference(expr, "scala.math")) =>
+        (FlatCode[String](Seq(), Seq(), Seq(MWC64X_RNG.mwc64xValueCode)), true)
       case s @ Select(expr, fun) =>
-        convert(expr).mapEachValue(v => {
+        val (exprConv, usesRandom) = convert(expr)
+        val flatCode = exprConv.mapEachValue(v => {
           val fn = fun.toString
           if (fn.matches("_\\d+")) {
             Seq(v + "." + fn)
@@ -217,10 +232,17 @@ extends MiscMatchers
             Seq("/* Error: failed to convert " + body + " */")
           }
         })
+        (flatCode, usesRandom)
       case WhileLoop(condition, content) =>
-        val FlatCode(dcont, scont, vcont) = content.map(convert).reduceLeft(_ >> _)
-        val FlatCode(dcond, scond, Seq(vcond)) = convert(condition)
-        FlatCode[String](
+        /* Convert the content */
+        val (contentConvSeq, contentUsesRandom) = convertTrees(content)
+        val FlatCode(dcont, scont, vcont) = contentConvSeq.reduceLeft(_ >> _)
+        
+        /* Convert the condition */
+        val (FlatCode(dcond, scond, Seq(vcond)), conditionUsesRandom) = convert(condition)
+
+        val usesRandom = contentUsesRandom || conditionUsesRandom
+        val flatCode = FlatCode[String](
           dcond ++ dcont,
           scond ++
           Seq(
@@ -230,20 +252,32 @@ extends MiscMatchers
           ),
           Seq()
         )
+        
+        (flatCode, usesRandom)
       case Apply(target, args) =>
-        merge((target :: args).map(convert):_*)(seq => {
+        val (convSeq, usesRandom) = convertTrees(target :: args)
+        val flatCode = merge(convSeq:_*)(seq => {
           val t :: a = seq.toList
           Seq(t + "(" + a.mkString(", ") + ")") 
         })
+        (flatCode, usesRandom)
       case Block(statements, Literal(Constant(empty))) =>
         assert(empty == (), "Valued blocks should have been flattened in a previous phase !")
-        statements.map(convert).map(_.noValues).reduceLeft(_ >> _)
-      case _ =>
+        val (convStatements, usesRandom) = convertTrees(statements)
+        val flatCode = convStatements.map(_.noValues).reduceLeft(_ >> _)
+        (flatCode, usesRandom)
+      case t =>
         //println(nodeToStringNoComment(body))
         throw new RuntimeException("Failed to convert " + body.getClass.getName + ": \n" + body + " : \n" + nodeToStringNoComment(body))
-        valueCode("/* Error: failed to convert " + body + " */")
     }
   }
+  
+  def convertTrees(trees:Seq[Tree]):(Seq[FlatCode[String]], Boolean) = {
+    val (convTrees, usesRandomSeq) = trees.map(convert).unzip
+    val usesRandom = usesRandomSeq.contains(true)
+    (convTrees, usesRandom)
+  }
+  
   def convertMathFunction(functionType: Type, funName: Name, args: List[Tree]) = {
     var outers = Seq[String]()//"#include <math.h>")
     val hasDoubleParam = args.exists(_.tpe == DoubleClass.tpe)
@@ -254,7 +288,7 @@ extends MiscMatchers
       case Select(a, toDoubleName()) => a
       case arg => arg
     })
-    val convArgs = normalizedArgs.map(convert)
+    val (convArgs, usesRandom) = convertTrees(normalizedArgs)
 
     assert(convArgs.forall(_.statements.isEmpty), convArgs)
     FlatCode[String](

@@ -302,18 +302,20 @@ package object scalacl {
 
   implicit def Expression2CLFunction[K, V](fx: (K => V, Array[String]))(implicit kIO: CLDataIO[K], vIO: CLDataIO[V]): CLFunction[K, V] = {
     val (function, expressions) = fx
-    new CLFunction[K, V](function, Array(), Array(), expressions, Array())
+    val usesRandom = true  //TODO Don't really know whether random is used in this expr, defaulting to true just in case
+    new CLFunction[K, V](function, Array(), Array(), expressions, Array(), usesRandom)
   }
   implicit def ExpressionWithCaptures2CLFunction[K, V](fx: (K => V, Array[String], impl.CapturedIOs))(implicit kIO: CLDataIO[K], vIO: CLDataIO[V]): CLFunction[K, V] = {
     val (function, expressions, captures) = fx
-    new CLFunction[K, V](function, Array(), Array(), expressions, Array(), captures)
+    val usesRandom = true  //TODO Don't really know whether random is used in this expr, defaulting to true just in case
+    new CLFunction[K, V](function, Array(), Array(), expressions, Array(), usesRandom, captures)
   }
 
   /**
    * This MUST be transformed by the ScalaCL compiler plugin to be usable in an OpenCL context (otherwise operations will happen in Scala land
    */
   implicit def Function2CLFunction[K, V](f: K => V)(implicit kIO: CLDataIO[K], vIO: CLDataIO[V]): CLFunction[K, V] = {
-    new CLFunction[K, V](f, Array(), Array(), Array(), Array())
+    new CLFunction[K, V](f, Array(), Array(), Array(), Array(), false)
   }
 
   private val functionsCache = scala.collection.mutable.HashMap[Long, CLFunction[_, _]]()
@@ -326,7 +328,8 @@ package object scalacl {
     expressions: => Array[String], 
     extraInputBufferArgsIOs: => Array[CLDataIO[Any]],
     extraOutputBufferArgsIOs: => Array[CLDataIO[Any]],
-    extraScalarArgsIOs: => Array[CLDataIO[Any]]
+    extraScalarArgsIOs: => Array[CLDataIO[Any]],
+    usesRandom: Boolean
   )(implicit kIO: CLDataIO[K], vIO: CLDataIO[V]): CLFunction[K, V] = {
     functionsCache synchronized {
       functionsCache.getOrElseUpdate(
@@ -337,6 +340,7 @@ package object scalacl {
           declarations, 
           expressions, 
           Array(),
+          usesRandom,
           CapturedIOs(
             extraInputBufferArgsIOs,
             extraOutputBufferArgsIOs,

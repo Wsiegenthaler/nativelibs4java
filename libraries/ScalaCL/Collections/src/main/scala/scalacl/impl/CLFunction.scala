@@ -46,6 +46,7 @@ extends (A => B)
     declarations: Array[String],
     expressions: Array[String],
     includedSources: Array[String],
+    usesRandom:Boolean,
     extraArgsIOs: CapturedIOs = CapturedIOs()
   )(implicit aIO: CLDataIO[A], bIO: CLDataIO[B]) = {
     this(
@@ -58,6 +59,7 @@ extends (A => B)
             declarations,
             expressions,
             includedSources,
+            usesRandom,
             extraArgsIOs
           )
         )
@@ -155,6 +157,8 @@ extends (A => B)
       error("ERROR, in = " + in + ", out = " + out)
   }
       
+  def randomSeed = System.currentTimeMillis  //TODO 
+  
   def run(
     dims: Array[Int], 
     in: Any,//CLCollection[A],
@@ -178,6 +182,10 @@ extends (A => B)
     
     val kernelArgs: Array[AnyRef] = 
       Array(size.asInstanceOf[AnyRef]) ++ 
+      (if (code.sourceData.usesRandom)
+         Array(randomSeed.asInstanceOf[AnyRef])
+       else
+         Array[AnyRef]()) ++
       inArgs ++ 
       outArgs ++ 
       extraInBufs.map(_.buffer) ++ 
