@@ -1,3 +1,9 @@
+/*
+Part of MWC64X by David Thomas, dt10@imperial.ac.uk
+This is provided under BSD, full license is with the main package.
+See http://www.doc.ic.ac.uk/~dt10/research
+*/
+
 package scalacl.plugin
 
 object MWC64X_RNG {
@@ -7,10 +13,10 @@ object MWC64X_RNG {
   val randomSeedName = "__cl_random_seed"
     
   def mwc64xDefCode(sampesPerStream:Double=DEFAULT_SAMPLES_PER_STREAM) = """
-    mwc64x_state_t __cl_rng_state;
-    MWC64X_SeedStreams(&__cl_rng_state, """ + randomSeedName + ", " + sampesPerStream + ");"
+    mwc64x_state_t __cl_random_state;
+    MWC64X_SeedStreams(&__cl_random_state, """ + randomSeedName + ", " + sampesPerStream + ");"
     
-  val mwc64xValueCode = "MWC64X_NextUint(&__cl_rng_state)"
+  val mwc64xValueCode = "((double)MWC64X_NextUint(&__cl_random_state) / 4294967296)"  // Scale value to 0->1 by dividing the output by the size of a uint = 2^32 = 4294967296
 
     
   val mwc64xOuterCode = """

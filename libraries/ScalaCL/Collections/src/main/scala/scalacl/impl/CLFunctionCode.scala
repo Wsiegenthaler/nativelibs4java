@@ -288,7 +288,7 @@ object CLFunctionCode {
     
     val sizeParam = Seq("int " + sizeVarName)
 
-    val randomSeedParam = Seq("const double __cl_random_seed")
+    val randomSeedParam = Seq("const ulong __cl_random_seed")
 
     val kernDeclsArray = declarations.map(replaceAll(_, false, fibersReplacementInfos))
     lazy val kernDeclsRange = declarations.map(replaceAll(_, true, fibersReplacementInfos))
