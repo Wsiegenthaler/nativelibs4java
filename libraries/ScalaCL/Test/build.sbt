@@ -6,11 +6,15 @@
 
 //scalaVersion := "2.9.0"
 
-resolvers += "NativeLibs4Java Repository" at "http://nativelibs4java.sourceforge.net/maven/"
+resolvers ++= Seq(
+        "Local Maven Repository" at "file://"+Path.userHome+"/.m2/repository",
+        "NativeLibs4Java Repository" at "http://nativelibs4java.sourceforge.net/maven/"
+)
 
-libraryDependencies += "com.nativelibs4java" % "scalacl" % "0.2"
+libraryDependencies += "com.nativelibs4java" % "scalacl" % "0.3-SNAPSHOT" classifier "shaded"
+
 
 autoCompilerPlugins := true
 
-addCompilerPlugin("com.nativelibs4java" % "scalacl" % "0.2")
+addCompilerPlugin("com.nativelibs4java" % "scalacl" % "0.3-SNAPSHOT")
 
