@@ -57,6 +57,9 @@ extends MiscMatchers
   var placeHolderRefs = new Stack[String]
   
   val randomName = N("random")
+  val randomIntName = N("randomInt")
+  
+  val cl_khr_fp64 = "#pragma OPENCL EXTENSION cl_khr_fp64: enable"
 
   def valueCode(v: String) = FlatCode[String](Seq(), Seq(), Seq(v))
   def emptyCode = FlatCode[String](Seq(), Seq(), Seq())
@@ -192,6 +195,20 @@ extends MiscMatchers
         //}
         //Match(Ident("x0$1"), List(CaseDef(Apply(TypeTree(), List(Bind(i, Ident("_")), Bind(c, Ident("_"))), EmptyTree Apply(Select(Ident("i"), "$plus"), List(Ident("c")
         convert(body)
+      case Apply(s @ Select(expr, randomIntName()), List(n)) if (isPackageReference(expr, "scalacl.math")) =>
+        /* scalacl.math.randomInt(n) (uniform distribution for ints between 0 and n-1 inclusively) */
+        val (nConv, nUsesRandom) = convert(n)
+        val nConvStr = nConv.values.last
+        (FlatCode[String](Seq(cl_khr_fp64), Seq(), Seq(MWC64X_RNG.mwc64xIntRangeValueCode(nConvStr))), true)
+      case s @ Select(expr, randomIntName()) if (isPackageReference(expr, "scalacl.math")) =>
+        /* scalacl.math.randomInt (uniform distribution for signed ints) */
+        (FlatCode[String](Seq(cl_khr_fp64), Seq(), Seq(MWC64X_RNG.mwc64xIntValueCode)), true)
+      case s @ Select(expr, randomName()) if (isPackageReference(expr, "scala.math") || isPackageReference(expr, "scalacl.math")) =>
+        /* scala.math.random (uniform distribution for doubles from 0 to 1) */
+        (FlatCode[String](Seq(cl_khr_fp64), Seq(), Seq(MWC64X_RNG.mwc64xDoubleValueCode)), true)
+      case Select(s @ Select(expr, randomName()), toFloatName()) if (isPackageReference(expr, "scala.math") || isPackageReference(expr, "scalacl.math")) =>
+        /* scala.math.random (casted to float for systems without double support) */
+        (FlatCode[String](Seq(), Seq(), Seq(MWC64X_RNG.mwc64xFloatValueCode)), true)
       case Select(expr, toSizeTName()) => cast(expr, "size_t")
       case Select(expr, toLongName()) => cast(expr, "long")
       case Select(expr, toIntName()) => cast(expr, "int")
@@ -219,8 +236,6 @@ extends MiscMatchers
             throw new RuntimeException("[ScalaCL] Unhandled method name in Scala -> OpenCL conversion : " + name + "\n\tleft = " + left + ",\n\targs = " + args)
             (valueCode("/* Error: failed to convert " + body + " */"), false)
         }
-      case s @ Select(expr, randomName() ) if (isPackageReference(expr, "scala.math")) =>
-        (FlatCode[String](Seq(), Seq(), Seq(MWC64X_RNG.mwc64xValueCode)), true)
       case s @ Select(expr, fun) =>
         val (exprConv, usesRandom) = convert(expr)
         val flatCode = exprConv.mapEachValue(v => {
@@ -282,7 +297,7 @@ extends MiscMatchers
     var outers = Seq[String]()//"#include <math.h>")
     val hasDoubleParam = args.exists(_.tpe == DoubleClass.tpe)
     if (hasDoubleParam)
-      outers ++= Seq("#pragma OPENCL EXTENSION cl_khr_fp64: enable")
+      outers ++= Seq(cl_khr_fp64)
 
     val normalizedArgs = args.map(_ match {
       case Select(a, toDoubleName()) => a

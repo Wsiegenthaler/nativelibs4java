@@ -248,7 +248,7 @@ extends PluginComponent
             case s: MethodSymbol =>
               !(s.owner == CLArrayClass && s.toString == "method apply") &&
               !primitiveTypeSymbols.contains(s.owner) && 
-              !(s.owner == ScalaMathCommonClass && s.toString.startsWith("method ")) &&
+              !((s.owner == ScalaMathCommonClass || s.owner == ScalaCLMathCommonClass) && s.toString.startsWith("method ")) && 
               !s.toString.matches("value _\\d+") &&
               !s.toString.matches("method to(Double|Int|Float|Long|Short|Byte|Boolean|Char)") &&
               !(s.toString == "method apply" && s.owner != null && s.owner.toString.matches("object Tuple\\d+")) // TODO cleanup hack

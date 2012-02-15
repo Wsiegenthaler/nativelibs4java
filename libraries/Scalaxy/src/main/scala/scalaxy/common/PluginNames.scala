@@ -86,6 +86,7 @@ trait PluginNames {
   lazy val ScalaCollectionPackage = M("scala.collection")
   lazy val ScalaMathPackage = M("scala.math")
   lazy val ScalaMathPackageClass  = ScalaMathPackage.tpe.typeSymbol
+  lazy val ScalaCLMathCommonClass = C("scalacl.ScalaCLMathCommon")
   lazy val ScalaMathCommonClass = C("scala.MathCommon")
   
   lazy val SeqModule          = M("scala.collection.Seq")

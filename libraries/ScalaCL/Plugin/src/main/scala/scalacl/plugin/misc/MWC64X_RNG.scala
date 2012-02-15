@@ -16,8 +16,14 @@ object MWC64X_RNG {
     mwc64x_state_t __cl_random_state;
     MWC64X_SeedStreams(&__cl_random_state, """ + randomSeedName + ", " + sampesPerStream + ");"
     
-  val mwc64xValueCode = "((double)MWC64X_NextUint(&__cl_random_state) / 4294967296)"  // Scale value to 0->1 by dividing the output by the size of a uint = 2^32 = 4294967296
+  private val mwc64xUIntValueCode = "MWC64X_NextUint(&__cl_random_state)"
+  private val mwc64xNormValueCode = mwc64xUIntValueCode + "/4294967296"  // Scale value to 0->1 by dividing the output by the size of a uint = 2^32 = 4294967296
 
+  val mwc64xDoubleValueCode = "((double)" + mwc64xNormValueCode + ")"
+  val mwc64xFloatValueCode = "((float)" + mwc64xNormValueCode + ")"
+
+  val mwc64xIntValueCode = "as_int(" + mwc64xUIntValueCode + ")"
+  def mwc64xIntRangeValueCode(nConv:String) = "(uint)( rint((" + mwc64xFloatValueCode + " * (" + nConv + ")) - 0.5) )"
     
   val mwc64xOuterCode = """
 /*

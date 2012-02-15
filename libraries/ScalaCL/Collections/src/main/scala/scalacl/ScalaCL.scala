@@ -46,6 +46,14 @@ package scalacl {
         java.util.Arrays.asList(devices:_*)
       )
   }
+  
+  /** A place for additional math functionality usable within kernels */
+  class ScalaCLMathCommon {
+    def random:Double = scala.math.random
+    def randomInt:Int = scala.util.Random.nextInt()
+    def randomInt(n:Int):Int = scala.util.Random.nextInt(n)
+  }
+  package object math extends ScalaCLMathCommon
 }
 package object scalacl {
   
