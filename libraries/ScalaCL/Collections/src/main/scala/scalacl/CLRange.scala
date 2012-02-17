@@ -50,6 +50,7 @@ object CLRange {
 import CLFilteredArray.{PresenceType, toBool, toPresence}
 
 class CLRange(
+  protected[scalacl] val range: Range,
   protected[scalacl] val buffer: CLGuardedBuffer[Int]
 )(
   implicit val context: Context
@@ -61,7 +62,7 @@ class CLRange(
   with MappableToCLArray[Int, CLIndexedSeq[Int]]
 {
   def this(range: Range)(implicit context: Context) =
-    this(new CLGuardedBuffer[Int](Array(range.start, range.end, range.step, if (range.isInclusive) 1 else 0)))
+    this(range, new CLGuardedBuffer[Int](Array(range.start, range.end, range.step, if (range.isInclusive) 1 else 0)))
 
   override def eventBoundComponents = Seq(buffer)
   override def release = buffer.release
@@ -88,7 +89,7 @@ class CLRange(
   protected override def mapFallback[B](f: Int => B, result: CLArray[B]) = {
     executingScalaFallbackOperation("mapFallback")
     var offset = 0
-    for (i <- toRange) {
+    for (i <- range) {
       result(offset) = f(i)
       offset += 1
     }
@@ -96,7 +97,7 @@ class CLRange(
   
   protected override def foreachFallback[U](f: Int => U) = {
     executingScalaFallbackOperation("foreachFallback")
-    for (i <- toRange) {
+    for (i <- range) {
       f(i)
     }
   }
@@ -112,7 +113,6 @@ class CLRange(
         val copy = future {
           copyToCLArray(buffer, filteredOut.array.buffers.head.asInstanceOf[CLGuardedBuffer[Int]])
         }
-        val range = toRange
         val presenceArr = new Array[PresenceType](range.size)
         var offset = 0
         for (i <- range) {
@@ -126,15 +126,15 @@ class CLRange(
   }
 
   override def apply(index: Int): Int =
-    toRange.apply(index)
+    range.apply(index)
 
-  override def length = toRange.length
+  override def length = range.length
   override def size = length
   
   def toRange = convertToRange(buffer)
 
   override def foreach[U](f: Int => U): Unit =
-    toRange foreach f
+    range foreach f
 
   //TODO Changed in Scala 2.9.0 : Range.slice no longer returns a Range !
   //override def slice(from: Int, to: Int) = new CLRange(toRange.slice(from, to))
