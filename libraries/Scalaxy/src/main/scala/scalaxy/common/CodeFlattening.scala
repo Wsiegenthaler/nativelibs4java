@@ -365,12 +365,12 @@ extends MiscMatchers
             Seq(),
             Seq(Ident(name).setSymbol(s.symbol)) )
          }
-        case Select(target, name) =>
+        case s @ Select(target, name) =>
           val FlatCode(defs, stats, vals) = flattenTuplesAndBlocks(target, sideEffectFree = target.tpe != null)
           FlatCode[Tree](
             defs,
             stats,
-            vals.map(v => Select(v, name))
+            vals.map(v => Select(v, name).setSymbol(s.symbol))
           )
         case Apply(ident @ Ident(functionName), args) =>
           val f = args.map(flattenTuplesAndBlocks(_))
