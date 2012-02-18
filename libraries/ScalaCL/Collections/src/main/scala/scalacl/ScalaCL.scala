@@ -68,7 +68,10 @@ package object scalacl {
   
   var enforceUsingOpenCL =
     "1" == System.getenv("SCALACL_ENFORCE_OPENCL")
-    
+
+  var deterministicRandomSeeding =
+    "1" == System.getenv("SCALACL_DETERMINISTIC_SEEDING")
+
   type Device = CLDevice
   
   // backward compatibility

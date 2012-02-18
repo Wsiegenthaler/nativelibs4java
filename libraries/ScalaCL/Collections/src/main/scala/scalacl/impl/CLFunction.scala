@@ -157,7 +157,7 @@ extends (A => B)
       error("ERROR, in = " + in + ", out = " + out)
   }
       
-  def randomSeed = System.currentTimeMillis  //TODO 
+  def randomSeed = if (deterministicRandomSeeding) 0l else System.currentTimeMillis  //TODO pick better seed?
   
   def run(
     dims: Array[Int], 
